@@ -24,6 +24,7 @@ OBJS := $(patsubst %.c, %.o, $(SRCS))
 CFLAGS += -DADB_HOST=0
 CFLAGS += -D_XOPEN_SOURCE
 CFLAGS += -D_GNU_SOURCE
+CFLAGS += -DALLOW_ADBD_ROOT=1
 #CFLAGS += -DNO_AUTH
 
 LDFLAGS += -lpthread -lresolv
