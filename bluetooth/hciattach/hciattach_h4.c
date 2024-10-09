@@ -330,7 +330,7 @@ int h4_vendor_read_rom_ver(int fd)
 	rom_ver += 1;
 	close(fd_rlv);
 
-	if(resp[7] + 1 == 2 && rom_ver == 3) {
+	if(resp[7] + 1 == 2 && rom_ver >= 3) {
 		rtb_cfg.eversion = 2;
 	} else {
 		rtb_cfg.eversion = resp[7];
