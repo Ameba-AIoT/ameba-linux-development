@@ -114,116 +114,100 @@ static int set_fd_block(int fd)
 /*
  * Download Realtek Firmware and Config
  */
-static int rtb_download_fwc(int fd, uint8_t *buf, int size, int proto,
-							struct termios *ti)
+static uint8_t _get_patch_project_id(uint8_t *p_buf)
 {
-	uint8_t curr_idx = 0;
-	uint8_t curr_len = 0;
-	uint8_t lp_len = 0;
-	uint8_t add_pkts = 0;
-	uint16_t end_idx = 0;
-	uint16_t total_idx = 0;
-	uint16_t num;
-	unsigned char *pkt_buf;
-	uint16_t i, j;
-	uint16_t idx = 0;
-	int result;
-#ifdef SERIAL_NONBLOCK_READ
-	int old_fl;
-#endif
+	uint8_t opcode;
+	uint8_t length;
+	uint8_t data;
 
-	end_idx = (uint16_t)((size - 1) / PATCH_DATA_FIELD_MAX_SIZE);
-	lp_len = size % PATCH_DATA_FIELD_MAX_SIZE;
+	opcode = *(--p_buf);
 
-	num += end_idx + 1;
-
-	add_pkts = num % 8 ? (8 - num % 8) : 0;
-
-#ifdef SERIAL_NONBLOCK_READ
-	old_fl = set_fd_nonblock(fd);
-	if (old_fl < 0) {
-		RS_ERR("Set fd nonblock error, %s", strerror(errno));
-	}
-	if (old_fl == FD_BLOCK) {
-		RS_INFO("old fd state is block");
-	}
-#endif
-
-	/* Make sure the next seqno is zero after download patch and
-	 * hci reset
-	 */
-	add_pkts = 0; /* No additional packets need */
-
-	total_idx = add_pkts + end_idx;
-	rtb_cfg.total_num = total_idx;
-
-	RS_INFO("end_idx: %u, lp_len: %u, additional pkts: %u\n", end_idx,
-			lp_len, add_pkts);
-	RS_INFO("Start downloading...");
-
-	if (lp_len == 0) {
-		lp_len = PATCH_DATA_FIELD_MAX_SIZE;
-	}
-
-	pkt_buf = buf;
-
-	for (i = 0; i <= total_idx; i++) {
-		/* Index will roll over when it reaches 0x80
-		 * 0, 1, 2, 3, ..., 126, 127(7f), 1, 2, 3, ...
-		 */
-		j = idx++;
-		if (j == 0x7f)
-			idx = 1;
-
-		if (i < end_idx) {
-			curr_idx = j;
-			curr_len = PATCH_DATA_FIELD_MAX_SIZE;
-		} else if (i == end_idx) {
-			/* Send last data packets */
-			if (i == total_idx) {
-				curr_idx = j | 0x80;
+	while (opcode != 0xFF) {
+		length = *(--p_buf);
+		if (opcode == 0x00) {
+			if (length != 1) {
+				RS_ERR("Project ID length error!");
+				return 0xFF;
 			} else {
-				curr_idx = j;
+				data = *(--p_buf);
+				return data;
 			}
-			curr_len = lp_len;
-		} else if (i < total_idx) {
-			/* Send additional packets */
-			curr_idx = j;
-			pkt_buf = NULL;
-			curr_len = 0;
-			RS_INFO("Send additional packet %u", curr_idx);
 		} else {
-			/* Send last packet */
-			curr_idx = j | 0x80;
-			pkt_buf = NULL;
-			curr_len = 0;
-			RS_INFO("Last packet %u", curr_idx);
-		}
-
-		if (curr_idx & 0x80) {
-			RS_INFO("Send last pkt");
-		}
-
-		curr_idx = h4_download_patch(fd, curr_idx, pkt_buf,
-									 curr_len, ti);
-		if (curr_idx != j && i != total_idx) {
-			RS_ERR("Index mismatch %u, curr_idx %u", j,
-				   curr_idx);
-			return -1;
-		}
-
-		if (curr_idx < end_idx) {
-			pkt_buf += PATCH_DATA_FIELD_MAX_SIZE;
+			p_buf -= length;
+			opcode = *(--p_buf);
 		}
 	}
 
-#ifdef SERIAL_NONBLOCK_READ
-	if (old_fl == FD_BLOCK) {
-		set_fd_block(fd);
-	}
-#endif
+	RS_ERR("Project ID not found!");
+	return 0xFF;
+}
 
-	return 0;
+static uint8_t hci_patch_get_patch_version(struct rtb_struct* rtb_cfg)
+{
+	const uint8_t patch_sig_v1[] = {0x52, 0x65, 0x61, 0x6C, 0x74, 0x65, 0x63, 0x68}; // V1 signature: Realtech
+	const uint8_t patch_sig_v2[] = {0x52, 0x54, 0x42, 0x54, 0x43, 0x6F, 0x72, 0x65}; // V2 signature: RTBTCore
+	const uint8_t patch_sig_v3[] = {0x42, 0x54, 0x4E, 0x49, 0x43, 0x30, 0x30, 0x33}; // V2 signature: BTNIC003
+	const uint8_t ext_section_sig[] = {0x51, 0x04, 0xFD, 0x77};                      // Extension section signature
+	uint8_t project_id;
+	uint8_t *p_patch = NULL;
+	uint32_t patch_len;
+	uint8_t patch_version;
+
+	p_patch = rtb_cfg->fw_buf;
+	patch_len = rtb_cfg->fw_len;
+
+	if ((!memcmp(p_patch, patch_sig_v1, sizeof(patch_sig_v1))) &&
+		(!memcmp(p_patch + patch_len - sizeof(ext_section_sig), ext_section_sig, sizeof(ext_section_sig)))) {
+		patch_version = PATCH_VERSION_V1;
+	} else if ((!memcmp(p_patch, patch_sig_v2, sizeof(patch_sig_v2))) &&
+				(!memcmp(p_patch + patch_len - sizeof(ext_section_sig), ext_section_sig, sizeof(ext_section_sig)))) {
+		project_id = _get_patch_project_id(p_patch + patch_len - sizeof(ext_section_sig));
+		if (project_id != HCI_PATCH_PROJECT_ID) {
+			RS_ERR("Project ID 0x%02x check fail, No available patch!", project_id);
+			return PATCH_VERSION_INVALID;
+		}
+		patch_version = PATCH_VERSION_V2;
+	} else if ((!memcmp(p_patch, patch_sig_v3, sizeof(patch_sig_v3)))) {
+		patch_version = PATCH_VERSION_V3;
+	} else {
+		RS_ERR("Signature check fail, No available patch!");
+	}
+
+	return patch_version;
+}
+
+extern uint8_t hci_download_patch_v2(int fd, struct rtb_struct* rtb_cfg, struct termios *ti);
+extern uint8_t hci_download_patch_v3(int fd, struct rtb_struct* rtb_cfg, struct termios *ti);
+static int rtb_download_fwc(int fd, struct rtb_struct* rtb_cfg, struct termios *ti)
+{
+	uint8_t patch_version;
+	uint8_t *p_patch;
+	uint32_t patch_len;
+	uint8_t ret = HCI_FAIL;
+
+	patch_version = hci_patch_get_patch_version(rtb_cfg);
+
+	switch (patch_version) {
+	case PATCH_VERSION_V1:
+		RS_ERR("Signature check success: Merge patch v1 not support");
+		break;
+
+	case PATCH_VERSION_V2:
+		RS_INFO("Signature check success: Merge patch v2");
+		ret = hci_download_patch_v2(fd, rtb_cfg, ti);
+		break;
+
+	case PATCH_VERSION_V3:
+		RS_INFO("Signature check success: Merge patch v3");
+		ret = hci_download_patch_v3(fd, rtb_cfg, ti);
+		break;
+
+	default:
+		RS_ERR("Signature check fail, No available patch!");
+		break;
+	}
+
+	return ret;
 }
 
 #define ARRAY_SIZE(a)	(sizeof(a)/sizeof(a[0]) )
@@ -424,39 +408,7 @@ static int rtb_config(int fd, int proto, int speed, struct termios *ti)
 			rtb_cfg.config_len = 0;
 		}
 		return -1;
-	} else {
-		rtb_cfg.total_buf = rtb_get_final_patch(fd, proto,
-												&rtb_cfg.total_len);
-		/* If the above function executes successfully, the Config and
-		 * patch were copied to the total buf */
-
-		/* Free config buf */
-		if (rtb_cfg.config_buf) {
-			free(rtb_cfg.config_buf);
-			rtb_cfg.config_buf = NULL;
-		}
-		/* Free the fw buf */
-#if USE_FW_FILE_INSTEAD_OF_ARRAY
-		free(rtb_cfg.fw_buf);
-#endif
-		rtb_cfg.fw_buf = NULL;
-		rtb_cfg.fw_len = 0;
-
-		if (!rtb_cfg.total_buf) {
-			RS_ERR("Failed to get the final patch");
-			exit(EXIT_FAILURE);
-		}
 	}
-
-	// max_patch_size = 40 * 1024;
-
-	// if (rtb_cfg.total_len > max_patch_size) {
-	// 	RS_ERR("Total length of fwc is larger than allowed");
-	// 	goto buf_free;
-	// }
-
-	RS_INFO("Total len %d for fwc", rtb_cfg.total_len);
-
 change_baud:
 	/* change baudrate if needed
 	 * rtb_cfg.vendor_baud is a __u32/__u16 vendor-specific variable
@@ -491,18 +443,11 @@ change_baud:
 	}	
 
 start_download:
-	if (rtb_cfg.total_len > 0 && rtb_cfg.dl_fw_flag) {
-		rtb_cfg.rx_index = -1;
-
-		ret = rtb_download_fwc(fd, rtb_cfg.total_buf, rtb_cfg.total_len,
-							   proto, ti);
-		free(rtb_cfg.total_buf);
+		ret = rtb_download_fwc(fd, &rtb_cfg, ti);
 
 		if (hci_phy_efuse != NULL) {
 			h4_write_iqk(fd, hci_phy_efuse);
 		}
-
-		// h4_set_cut_ver(fd);
 
 		/* Make hci reset after Controller applies the Firmware and Config */
 		if (ret == 0) {
@@ -529,7 +474,7 @@ start_download:
 			}
 			RS_INFO("Final speed %d", final_speed);
 		}
-	}
+	// }
 
 done:
 

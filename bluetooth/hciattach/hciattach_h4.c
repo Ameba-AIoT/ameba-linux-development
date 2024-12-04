@@ -31,7 +31,7 @@
 
 extern struct rtb_struct rtb_cfg;
 
-static int start_xfer_wait(int fd, uint8_t *cmd, uint16_t len, uint32_t msec,
+int start_xfer_wait(int fd, uint8_t *cmd, uint16_t len, uint32_t msec,
 						   int retry, uint8_t *resp, uint16_t *resp_len)
 {
 	uint8_t buf[64];
@@ -178,7 +178,7 @@ int h4_download_patch(int fd, int index, uint8_t *data, int len, struct termios 
 	uint8_t resp[8];
 	uint16_t rlen = sizeof(resp);
 
-	RS_DBG("fd: %d, index: %d, len: %d", fd, index, len);
+	RS_DBG("fd: %d, index: %d, len: %d", fd, index, len);  // len = 252
 
 	if (data) {
 		memcpy(&buf[5], data, len);

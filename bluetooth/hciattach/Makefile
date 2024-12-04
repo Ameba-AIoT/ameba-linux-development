@@ -17,7 +17,7 @@ target = rtk_hciattach
 
 all: $(O)/$(target)
 
-$(O)/$(target): $(O)/hciattach.o $(O)/hciattach_h4.o $(O)/hciattach_rtk.o $(O)/rtb_fwc.o
+$(O)/$(target): $(O)/hciattach.o $(O)/hciattach_h4.o $(O)/hciattach_rtk.o $(O)/rtb_fwc.o $(O)/hci_download_v2.o $(O)/hci_download_v3.o
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 
 $(O)/%.o: %.c
