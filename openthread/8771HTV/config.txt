@@ -1,0 +1,2 @@
+device = /dev/ttyRTK2
+ConfigBin = /lib/firmware/rtkcfu/8771HTV/8771HTV_Config.bin
