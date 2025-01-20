@@ -11,7 +11,7 @@ AR := $(CROSS_COMPILE)ar
 RANLIB := $(CROSS_COMPILE)ranlib
 O ?= $(shell pwd)
 
-CFLAGS += "-I../../../kernel/linux-5.4/include/uapi/misc"
+CFLAGS += "-I../../../kernel/linux-6.6/include/uapi/ameba"
 
 target = rtk_hciattach
 
