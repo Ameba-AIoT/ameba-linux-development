@@ -59,10 +59,11 @@ int main(int argc, char **argv)
     ifr.ifr_data = (void*)&u;
 
     if (ioctl(sock, RTW_PRIV_DGB_CMD, &ifr) < 0) {
-        printf("ioctl error\n");
+        printf("ioctl error: %s\n", strerror(errno));
         ret = -1;
         goto err;
     }
+    printf("%s\n", ibuf);
 
 err:
     close(sock);
