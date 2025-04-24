@@ -40,6 +40,7 @@
 #include <sys/timerfd.h>
 #include <sys/epoll.h>
 #include <stdbool.h>
+#include <linux/wireless.h>
 #include "rtb_fwc.h"
 #include "hciattach.h"
 #include "hciattach_h4.h"
@@ -52,6 +53,9 @@
 #define FD_BLOCK	0
 #define FD_NONBLOCK	1
 #endif
+
+#define RTW_IOCTL_MP 	SIOCDEVPRIVATE + 1
+#define BUF_SIZE   64
 
 /* #define RTL_8703A_SUPPORT */
 /* #define RTL8723DSH4_UART_HWFLOWC */ /* 8723DS H4 special */
@@ -474,7 +478,52 @@ start_download:
 			}
 			RS_INFO("Final speed %d", final_speed);
 		}
-	// }
+
+	/* Notify WIFI BT antenna when in mp mode*/
+	if(bluetooth_is_mp_mode()) {
+		struct ifreq ifr;
+		union iwreq_data u;
+
+		char ibuf[BUF_SIZE] = "mp_bt ant,s";
+		ibuf[strlen(ibuf)] = (char) (bt_ant_switch + '0');
+		ibuf[strlen(ibuf)] = '\0';
+		char* ifname = "wlan0";
+
+		int sock = socket(AF_INET, SOCK_DGRAM, 0);
+		if (sock < 0) {
+			RS_ERR("create socket error\n");
+			return -1;
+		}
+
+		memset(&ifr, 0, sizeof(struct ifreq));
+		strcpy(ifr.ifr_name, ifname);
+
+		if (ioctl(sock, SIOCGIFFLAGS, &ifr) != 0) {
+			RS_ERR("could not read interface %s flags: %s", ifname, strerror(errno));
+			close(sock);
+			return -1;
+		}
+
+		if (!(ifr.ifr_flags & IFF_UP)) {
+			RS_ERR("%s is not up!\n", ifname);
+			close(sock);
+			return -1;
+		}
+
+		memset(&u, 0, sizeof(union iwreq_data));
+		u.data.pointer = ibuf;
+		u.data.length = strlen(ibuf) + 1;
+
+		ifr.ifr_data = (void*)&u;
+		
+		if (ioctl(sock, RTW_IOCTL_MP, &ifr) < 0) {
+			RS_ERR("ioctl error %s\n", strerror(errno));
+			close(sock);
+			return -1;
+		}
+		RS_INFO("Private Message: %s\n", ibuf);
+		close(sock);
+	}
 
 done:
 
