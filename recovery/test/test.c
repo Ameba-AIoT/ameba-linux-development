@@ -21,13 +21,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "bootloader_message/bootloader_message.h"
-//#include "log/log.h"
-
-//#define printf RTLOGD
-const char* gDataBlock = "/dev/mtdblock0";
-
 int main(int argc, char **argv) {
+    int res = 0;
 
     if (argc < 1) {
         fprintf(stderr, "Usage: %s  [--update_package=packagepath]" "[--wipe_userdata] \n", argv[0]);
@@ -36,19 +31,38 @@ int main(int argc, char **argv) {
 
     argv += 1;
 
-    while(*argv) {
-        if(strstr(*argv, "--update_package") || !strcmp(*argv, "--wipe_userdata")){
-            struct bootloader_message boot = {};
-            strcpy(boot.recovery, *argv);
-            strcpy(boot.cmd, "boot-recovery");
-            set_bootloader_message(&boot, gDataBlock);
-        }else if(!strcmp(*argv, "-c")){
-            clear_bootloader_message(gDataBlock);
+    while (*argv) {
+        if (strstr(*argv, "--update_package") || !strcmp(*argv, "--wipe_userdata")) {
+            char cmd[128], param[128];
+
+            strncpy(param, *argv, strlen(*argv));
+            param[strlen(*argv)] = '\0';
+            snprintf(cmd, sizeof(cmd), "/usr/bin/fw_setenv cmd \" %s\"", param);
+
+            res = system(cmd);
+            if (res < 0) {
+                break;
+            }
+
+            res = system("/usr/bin/fw_setenv entry recovery");
+            if (res < 0) {
+                break;
+            }
+
+            res = system("/usr/bin/fw_setenv update_mode normal");
+            if (res < 0) {
+                break;
+            }
+        } else if (!strcmp(*argv, "-c")) {
+            res = system("/usr/bin/fw_setenv entry normal");
+            if (res < 0) {
+                break;
+            }
         }
 
-        if(*argv)
+        if (*argv)
             argv++;
     }
 
-    return 0;
+    return res;
 }

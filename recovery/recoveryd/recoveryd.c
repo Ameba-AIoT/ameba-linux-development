@@ -20,8 +20,6 @@
 #include <dirent.h>
 #include <sys/reboot.h>
 
-#include "bootloader_message/bootloader_message.h"
-
 const char* gDataBlock = "/dev/mtdblock0";
 const char* gMountPath[] = {"/mnt/storage", "/rom/mnt/storage/"};
 
@@ -35,14 +33,49 @@ static int checkOtaPackage(void) {
         int j = 0;
         for (; j < mount_size; j++) {
             DIR *dir_ptr = NULL;
+            DIR *ota_ptr = NULL;
+            struct dirent *entry = NULL;
             char path[64] = {0};
-            sprintf(path, "%s/%s/ota", gMountPath[j], devblock[i]);
-
-            //printf("dir path: %s\n", path);
+            char ota_path[64] = {0};
+            sprintf(path, "%s/%s", gMountPath[j], devblock[i]);
 
             dir_ptr = opendir(path);
-            if (dir_ptr)
+            if (!dir_ptr)
+                continue;
+
+            sprintf(ota_path, "%s/%s/ota", gMountPath[j], devblock[i]);
+            ota_ptr = opendir(ota_path);
+            if (ota_ptr) {
+                printf("update from ota folder\n");
+
+                int res = system("/usr/bin/fw_setenv update_mode normal");
+                if (res == -1) {
+                    printf("exec fw_setenv failed\n");
+                    continue;
+                }
+
+                closedir(ota_ptr);
+                closedir(dir_ptr);
                 return 1;
+            }
+
+            while ((entry = readdir(dir_ptr)) != NULL) {
+                size_t name_len = strlen(entry->d_name);
+                if (name_len > 4 && !strcmp(entry->d_name + name_len - 4, ".swu")) {
+                    printf("Found .swu file: %s\n", entry->d_name);
+
+                    int res = system("/usr/bin/fw_setenv update_mode swupdate");
+                    if (res == -1) {
+                        printf("exec fw_setenv failed\n");
+                        continue;
+                    }
+
+                    closedir(dir_ptr);
+                    return 1; // Found a .swu file
+                }
+            }
+
+            closedir(dir_ptr);
         }
     }
 
@@ -50,15 +83,17 @@ static int checkOtaPackage(void) {
 }
 
 int main(int argc, char **argv) {
-
-    while(1) {
+    printf("recoveryd enter\n");
+    while (1) {
         sleep(2);
 
         if (checkOtaPackage()) {
-            struct bootloader_message boot = {};
-            strcpy(boot.recovery, *argv);
-            strcpy(boot.cmd, "boot-recovery");
-            set_bootloader_message(&boot, gDataBlock);
+            int res = system("/usr/bin/fw_setenv entry recovery");
+            if (res == -1) {
+                printf("exec fw_setenv failed\n");
+                continue;
+            }
+
             reboot(RB_AUTOBOOT);
         }
     }
