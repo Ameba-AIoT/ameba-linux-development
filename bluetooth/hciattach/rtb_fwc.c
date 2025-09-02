@@ -504,6 +504,7 @@ int rtb_parse_config(uint8_t *cfg_buf, size_t len, uint8_t *efuse_config)
 		return -1;
 	}
 
+    cfg_buf[4] = len -  RTB_CFG_HDR_LEN;
 	cfg_len = ((uint16_t)cfg_buf[5] << 8) + cfg_buf[4];
 	if (cfg_len != len - RTB_CFG_HDR_LEN) {
 		RS_ERR("Config len %u is incorrect(%zd)", cfg_len,
