@@ -378,10 +378,7 @@ int wipe_data(int partition, int force_erase) {
             return -1;
         }
 
-        if(get_current_slot() == SLOTA)
-            slot = SLOTB;
-        else
-            slot = SLOTA;
+        slot = SLOTA;
 
         strcpy(partInfo, gPartitionInfoSlot[slot][partition].partition_info);
         p = strstr(partInfo, t);
@@ -461,83 +458,80 @@ static int upgrade_package(const char* path, const int update_from_tar) {
     if (pid == 0) {
         printf("Update Process Enter\n");
         int slot;
-        if(get_current_slot() == SLOTA) {
-            slot = SLOTB;
-        } else {
-            slot = SLOTA;
-        }
 
-        printf("update to: %s\n", (slot==SLOTA?SLA:SLB));
+        for (slot = SLOTA; slot < SLOTCNT; slot++) {
+            for (int i = 0; i < IMAGECNT; i++) {
+                char partinfo[128] = {0};
+                int cfd;
 
-        for(int i = 0; i < IMAGECNT; i++) {
-            char partinfo[128] = {0};
-            int cfd;
+                if (slot == SLOTB && i > APIMAGE) break; // no slot B for dtb, kernel, rootfs
 
-            if(gImageInfo[i].flash_type == 0) continue;
+                if (gImageInfo[i].flash_type == 0) continue;
 
-            if (update_from_tar) { // need to unzip seperately to /tmp
-                char cmd[256] = {0};
-                sprintf(cmd, "tar -xzvf %s %s -C %s", zip_path, gPartitionInfoSlot[slot][i].image_path, target_path);
-                //printf("update_package cmd: %s\n", cmd);
-                sta = exec_cmd(cmd);
-            }
-
-            sprintf(partinfo, "%s/%s", target_path, gPartitionInfoSlot[slot][i].image_path);
-
-            printf("partinfo: %s\n", partinfo);
-
-            cfd = open(partinfo, O_RDONLY);
-            //printf("Flash Image: %s\n", partinfo);
-            if (cfd != -1) {
-                if (md5check == 0) {
-                    char mdfile[256] = {0};
-
-                    if (update_from_tar) { // need to unzip .md5 seperately to /tmp
-                        char cmd[256] = {0};
-                        sprintf(cmd, "tar -xzvf %s ./%s.md5 -C %s", zip_path, gPartitionInfoSlot[slot][i].image_path, target_path);
-                        //printf("update_package cmd: %s\n", cmd);
-                        sta = exec_cmd(cmd);
-                    }
-
-                    sprintf(mdfile, "%s.md5", partinfo);
-
-                    int mdfd = open(mdfile, O_RDONLY);
-                    if(mdfd == -1) {
-                        printf("Error: %s.md5 file not exist\n", partinfo);
-                        _exit(EXIT_FAILURE);
-                    }
-
-                    if(verify_package(partinfo, mdfile)) {
-                        printf("Error: %s verify failed\n", partinfo);
-                        _exit(EXIT_FAILURE);
-                    }
+                if (update_from_tar) { // need to unzip seperately to /tmp
+                    char cmd[256] = {0};
+                    sprintf(cmd, "tar -xzvf %s %s -C %s", zip_path, gPartitionInfoSlot[slot][i].image_path, target_path);
+                    //printf("update_package cmd: %s\n", cmd);
+                    sta = exec_cmd(cmd);
                 }
 
-                if (i == ROOTFS || i == USERDATA) {
-                    printf("erase %s\n", (i == ROOTFS)?"rootfs":"userdata");
-                    if (wipe_data(i, 1) < 0) {
-                        printf("erase %s failed\n", (i == ROOTFS)?"rootfs":"userdata");
+                sprintf(partinfo, "%s/%s", target_path, gPartitionInfoSlot[slot][i].image_path);
+
+                printf("partinfo: %s\n", partinfo);
+
+                cfd = open(partinfo, O_RDONLY);
+                //printf("Flash Image: %s\n", partinfo);
+                if (cfd != -1) {
+                    if (md5check == 0) {
+                        char mdfile[256] = {0};
+
+                        if (update_from_tar) { // need to unzip .md5 seperately to /tmp
+                            char cmd[256] = {0};
+                            sprintf(cmd, "tar -xzvf %s ./%s.md5 -C %s", zip_path, gPartitionInfoSlot[slot][i].image_path, target_path);
+                            //printf("update_package cmd: %s\n", cmd);
+                            sta = exec_cmd(cmd);
+                        }
+
+                        sprintf(mdfile, "%s.md5", partinfo);
+
+                        int mdfd = open(mdfile, O_RDONLY);
+                        if(mdfd == -1) {
+                            printf("Error: %s.md5 file not exist\n", partinfo);
+                            _exit(EXIT_FAILURE);
+                        }
+
+                        if(verify_package(partinfo, mdfile)) {
+                            printf("Error: %s verify failed\n", partinfo);
+                            _exit(EXIT_FAILURE);
+                        }
+                    }
+
+                    if (i == ROOTFS || i == USERDATA) {
+                        printf("erase %s\n", (i == ROOTFS)?"rootfs":"userdata");
+                        if (wipe_data(i, 1) < 0) {
+                            printf("erase %s failed\n", (i == ROOTFS)?"rootfs":"userdata");
+                            _exit(EXIT_FAILURE);
+                        }
+                    }
+
+                    char dcmd[256] = {0};
+                    printf("%s check ok, now update to %s\n", partinfo, gPartitionInfoSlot[slot][i].partition_info);
+                    sprintf(dcmd, "dd if=%s of=%s", partinfo, gPartitionInfoSlot[slot][i].partition_info);
+
+                    sta = exec_cmd(dcmd);
+                    if (sta == 0) {
+                        if (update_from_tar == 1) {
+                            char rmcmd[256] = {0};
+                            sprintf(rmcmd, "rm -fr %s*", partinfo);
+                            exec_cmd(rmcmd);
+                        }
+                    } else
                         _exit(EXIT_FAILURE);
-                    }
-                }
-
-                char dcmd[256] = {0};
-                printf("%s check ok, now update to %s\n", partinfo, gPartitionInfoSlot[slot][i].partition_info);
-                sprintf(dcmd, "dd if=%s of=%s", partinfo, gPartitionInfoSlot[slot][i].partition_info);
-
-                sta = exec_cmd(dcmd);
-                if (sta == 0) {
-                    if (update_from_tar == 1) {
-                        char rmcmd[256] = {0};
-                        sprintf(rmcmd, "rm -fr %s*", partinfo);
-                        exec_cmd(rmcmd);
-                    }
-                } else
+                    exec_cmd("sync");
+                } else {
+                    printf("image: %s not existed\n", partinfo);
                     _exit(EXIT_FAILURE);
-                exec_cmd("sync");
-            } else {
-                printf("image: %s not existed\n", partinfo);
-                _exit(EXIT_FAILURE);
+                }
             }
         }
         _exit(EXIT_SUCCESS);

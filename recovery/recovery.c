@@ -23,7 +23,6 @@
 #include <unistd.h>
 #include <sys/reboot.h>
 
-#include "bootloader_message/bootloader_message.h"
 #include "config_parser.h"
 #include "install.h"
 #include "storage_mount/storage_mount.h"
@@ -45,47 +44,63 @@ static const struct option gOptions[] = {
 };
 
 static int finish_recovery() {
-    if (clear_bootloader_message(gMiscBlock)) {
-        printf("failed to clear bootloader message");
-        return -1;
+    int res = system("/usr/bin/fw_setenv entry normal");
+    if (res == -1) {
+        printf("exec fw_setenv failed\n");
+        return res;
     }
+
+    system("/usr/bin/fw_setenv cmd");
 
     return 0;
 }
 
-static int get_args(char** arg, int* num, const char* delim) {
-    struct bootloader_message boot = {};
+static int get_uboot_env(const char *key, char *value, int value_size) {
+    char cmd[128], val[128];
+    snprintf(cmd, sizeof(cmd), "/usr/bin/fw_printenv %s", key);
+    FILE *fp = popen(cmd, "r");
+    if (!fp) return -1;
 
+    if (!fgets(val, sizeof(val), fp)) {
+        printf("variable %s is not set in u-boot-env\n", key);
+        pclose(fp);
+        return -1;
+    }
+    pclose(fp);
+
+    // expect format: cmd= --update_package=XXX
+    char *eq = strchr(val, '=');
+    if (!eq) return -1;
+
+    eq++;
+    while (*eq == ' ') eq++;
+    char *end = strchr(eq, '\n');
+    if (end) *end = '\0';
+
+    int len = strlen(eq) + 1;
+    strncpy(value, eq, len);
+    value[len] = '\0';
+
+    return 0; // success
+}
+
+
+static int get_args(char** arg, int* num, const char* delim) {
     if(!delim) return -1;
 
-    char device[50];
-
-    if (get_misc_partition(device)) {
-        printf("get misc partition failed\n");
+    char value[128];
+    if (get_uboot_env("cmd", value, sizeof(value))) {
+        printf("get_uboot_env failed\n");
         return -1;
     }
-
-    strcpy(gMiscBlock, device);
-    //const char* tmp = "misc";
-    //sprintf(device,"/dev/%s", tmp);
-    if (get_bootloader_message(&boot, device)) {
-        printf("get booloader message failed\n");
-        return -1;
-    }
-    //for test
-    //const char* test = "--update_package=/data/updater.tar.gz --retry_count=2";
-    //const char* test = "--wipe_userdata";
-    //strncpy(boot.recovery, test, strlen(test)+1);
-    //end for test
-
-    //boot.recovery[sizeof(boot.recovery) - 1] = '\0';  // Ensure termination
 
     char* pNext = NULL;
     int count = *num;  //same value with num;
     arg++; // skip 0 for args count
 
-    pNext = (char *)strtok(boot.recovery, delim);
-    while(pNext != NULL) {
+    pNext = (char *)strtok(value, delim);
+    //pNext = (char *)strtok(boot.recovery, delim);
+    while (pNext != NULL) {
         printf("args: %s\n", pNext);
         *arg++ = pNext;
         ++count;
@@ -112,12 +127,13 @@ int storage_state_change(int state, const char* path) {
 
 int main(int argc, char **argv) {
 
-    printf("Recover Process Enter\n");
+    printf("Recovery Process Enter\n");
 
     int status = INSTALL_SUCCESS;
     int retrycount = 0;
     const char* dir_name = "ota";
     char update_dir[128];
+    int install_from_usb = 0;
 
     mount_storage(storage_state_change);
 
@@ -126,6 +142,7 @@ int main(int argc, char **argv) {
         if (gStorageState == STORAGE_MOUNT_EVENT && strcmp(gStoragePath, "")) {
             printf("storage mount success path:%s\n", gStoragePath);
             sprintf(update_dir, "%s/%s", gStoragePath, dir_name);
+            install_from_usb = 1;
             break;
         } else {
             sleep(1);
@@ -147,8 +164,12 @@ int main(int argc, char **argv) {
     res = get_args(args, &cnt, " ");
 
     if (res < 0 || cnt == 1) {
-        printf("get args failed\n");
-        goto INSTALL_FAILED;
+        if (install_from_usb)
+            goto install_directly;
+        else {
+            printf("get args failed\n");
+            goto INSTALL_FAILED;
+        }
     }
 
     //assign args cnt args[0]
@@ -183,6 +204,7 @@ int main(int argc, char **argv) {
 
     printf("package_path: %s, retry_count: %d, need_WipeData: %d\n", package_path, retry_count, need_WipeData);
 
+install_directly:
 #if ENABLE_DIFFERENTIAL_UPDATE
     if (package_path && strstr(package_path, ".zip") != NULL) {
         printf("%s existed, install differential package\n", package_path);
