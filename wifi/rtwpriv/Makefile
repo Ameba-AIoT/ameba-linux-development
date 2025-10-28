@@ -11,10 +11,7 @@ AR := $(CROSS_COMPILE)ar
 RANLIB := $(CROSS_COMPILE)ranlib
 O ?= $(shell pwd)
 
-all: $(O)/rtwpriv $(O)/iwpriv
-
-$(O)/iwpriv: $(O)/iwpriv.o
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
+all: $(O)/rtwpriv
 
 $(O)/rtwpriv: $(O)/rtwpriv.o
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
