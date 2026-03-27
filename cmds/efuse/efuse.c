@@ -112,7 +112,7 @@ int main(int argc, char **argv[]) {
     }
 
     if (argv[3]) {
-        size = atoi(argv[3]);
+        size = atoi((char*)argv[3]);
     }
 
     printf("addr : 0x%x, size: %d\n", addr, size);

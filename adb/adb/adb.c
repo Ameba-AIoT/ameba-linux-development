@@ -35,8 +35,8 @@
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 
 #if !ADB_HOST
-#include <linux/capability.h>
-#include <linux/prctl.h>
+#include <sys/capability.h>
+#include <sys/prctl.h>
 #include <sys/mount.h>
 #else
 #include "usb_vendors.h"
