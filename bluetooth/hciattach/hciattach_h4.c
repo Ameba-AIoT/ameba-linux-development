@@ -31,8 +31,33 @@
 
 extern struct rtb_struct rtb_cfg;
 
+static int read_data(int fd, uint8_t *buf, size_t len)
+{
+	size_t t = 0;
+	ssize_t w = 0;
+#define NUM_OF_RETRY	10
+	int count = 0;
+
+	if (fd < 0 || !buf || !len)
+		return -EINVAL;
+
+	while (len > 0) {
+		if ((w = read(fd, buf, len)) < 0) {
+			if (errno == EINTR || errno == EAGAIN)
+				continue;
+			return -1;
+		}
+		if (!w && ++count > NUM_OF_RETRY)
+			return 0;
+		len -= w;
+		buf += w;
+		t += w;
+	}
+	return t;
+}
+
 int start_xfer_wait(int fd, uint8_t *cmd, uint16_t len, uint32_t msec,
-						   int retry, uint8_t *resp, uint16_t *resp_len)
+			   int retry, uint8_t *resp, uint16_t *resp_len)
 {
 	uint8_t buf[64];
 	int result;
@@ -53,7 +78,7 @@ start_xfer:
 	result = write(fd, cmd, len);
 	if (result != len) {
 		RS_ERR("%s: Write cmd %04x error, %s", __func__, opcode,
-			   strerror(errno));
+		       strerror(errno));
 		return -1;
 	}
 
@@ -75,6 +100,7 @@ start_recv:
 
 		if (result == 0) {
 			RS_WARN("%s: Timeout", __func__);
+			util_hexdump(cmd, len);
 			if (retry <= 0) {
 				RS_ERR("%s: Transfer exhausted", __func__);
 				tcflush(fd, TCIOFLUSH);
@@ -86,16 +112,16 @@ start_recv:
 
 		if (p[0].revents & (POLLERR | POLLHUP)) {
 			RS_ERR("POLLERR or POLLUP happens, %s",
-				   strerror(errno));
+			       strerror(errno));
 			result = -1;
 			break;
 		}
 
 		if (state == 1) {
-			result = read(p[0].fd, buf, 1);
+			result = read_data(p[0].fd, buf, 1);
 			if (result == -1 || result != 1) {
 				RS_ERR("%s: Read pkt type error, %s", __func__,
-					   strerror(errno));
+				       strerror(errno));
 				result = -1;
 				break;
 			}
@@ -104,10 +130,10 @@ start_recv:
 				state = 2;
 			}
 		} else if (state == 2) {
-			result = read(p[0].fd, buf + count, 2);
+			result = read_data(p[0].fd, buf + count, 2);
 			if (result == -1 || result != 2) {
 				RS_ERR("%s: Read pkt header error, %s",
-					   __func__, strerror(errno));
+				       __func__, strerror(errno));
 				break;
 			}
 			count += result;
@@ -122,41 +148,42 @@ start_recv:
 			result = read(p[0].fd, buf + count, params_len);
 			if (result == -1) {
 				RS_ERR("%s: Read pkt payload error, %s",
-					   __func__, strerror(errno));
+				       __func__, strerror(errno));
 				break;
 			}
 			count += result;
 			params_len -= result;
-			if (!params_len) {
+			if (!params_len)
 				break;
-			}
 		}
 	}
 
 	if (result >= 0) {
-		if (buf[1] == 0x0e) {
+		struct hci_cc_common *cc = (void *)(buf + 1);
+
+		if (cc->evt_code == 0x0e) {
 			uint16_t tmp_opcode;
 
 			tmp_opcode = (uint16_t)buf[4] | buf[5] << 8;
 			if (tmp_opcode == opcode) {
-				RS_INFO("Cmd complete event for cmd %04x",
-						opcode);
+				/* RS_INFO("Cmd complete event for cmd %04x",
+				 * 	opcode);
+				 */
 				/* Status is not zero indicating command not
 				 * succeeded */
-				if (buf[6]) {
+				if (cc->status) {
+					RS_ERR("cc status 0x%02x", cc->status);
 					return -1;
 				}
-				if (!resp) {
+				if (!resp)
 					return 0;
-				}
-				if (*resp_len > count) {
+				if (*resp_len > count)
 					*resp_len = count;
-				}
 				memcpy(resp, buf, *resp_len);
 				return 0;
 			} else {
 				RS_WARN("Unexpected cmd complete event, %04x",
-						tmp_opcode);
+					tmp_opcode);
 				return -1;
 			}
 		} else {

@@ -152,6 +152,15 @@ typedef struct rtb_struct {
 	int epollfd;
 } rtb_struct_t;
 extern struct rtb_struct rtb_cfg;
+
+struct hci_cc_common {
+	uint8_t evt_code;
+	uint8_t plen;
+	uint8_t ncmd;
+	uint8_t opcode[2];
+	uint8_t status;
+} __attribute__((packed));
+
 int timeout_set(int fd, unsigned int msec);
 int set_speed(int fd, struct termios *ti, int speed);
 int rtb_init(int fd, int proto, int speed, struct termios *ti);
