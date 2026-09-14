@@ -17,13 +17,15 @@ struct rtb_struct;
 #define USE_FW_FILE_INSTEAD_OF_ARRAY 1
 #define BAUDRATE_4BYTES
 
-#define ROM_LMP_NONE            0x0000
+#define ROM_LMP_NONE           0x0000
 #define ROM_LMP_8730           0x8730
+#define ROM_LMP_8735           0x8735
 
 /* Chip type */
 /* software id */
 #define CHIP_UNKNOWN	0x00
-#define CHIP_8730  0x1
+#define CHIP_8730       0x1
+#define CHIP_8735       0x2
 
 #define RTL_FW_MATCH_CHIP_TYPE  (1 << 0)
 #define RTL_FW_MATCH_HCI_VER    (1 << 1)

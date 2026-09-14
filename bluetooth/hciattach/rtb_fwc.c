@@ -104,6 +104,11 @@ static struct patch_info h4_patch_table[] = {
 		ROM_LMP_8730, ROM_LMP_8730, 0, 0x000a,
 		"rtl8730_fw", "rtl8730_config_s0", "RTL8730"
 	},
+	{
+		RTL_FW_MATCH_CHIP_TYPE, CHIP_8735,
+		ROM_LMP_8735, ROM_LMP_8735, 0, 0x000a,
+		"rtl8735_fw", "rtl8735_config_s0", "RTL8735"
+	},
 
 	{ 0, 0, 0, ROM_LMP_NONE, 0, 0, "rtl_none_fw", "rtl_none_config", "NONE"}
 };

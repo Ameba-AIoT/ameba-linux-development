@@ -115,44 +115,12 @@ static int set_fd_block(int fd)
 }
 #endif
 
-/*
- * Download Realtek Firmware and Config
- */
-static uint8_t _get_patch_project_id(uint8_t *p_buf)
-{
-	uint8_t opcode;
-	uint8_t length;
-	uint8_t data;
-
-	opcode = *(--p_buf);
-
-	while (opcode != 0xFF) {
-		length = *(--p_buf);
-		if (opcode == 0x00) {
-			if (length != 1) {
-				RS_ERR("Project ID length error!");
-				return 0xFF;
-			} else {
-				data = *(--p_buf);
-				return data;
-			}
-		} else {
-			p_buf -= length;
-			opcode = *(--p_buf);
-		}
-	}
-
-	RS_ERR("Project ID not found!");
-	return 0xFF;
-}
-
 static uint8_t hci_patch_get_patch_version(struct rtb_struct* rtb_cfg)
 {
 	const uint8_t patch_sig_v1[] = {0x52, 0x65, 0x61, 0x6C, 0x74, 0x65, 0x63, 0x68}; // V1 signature: Realtech
 	const uint8_t patch_sig_v2[] = {0x52, 0x54, 0x42, 0x54, 0x43, 0x6F, 0x72, 0x65}; // V2 signature: RTBTCore
 	const uint8_t patch_sig_v3[] = {0x42, 0x54, 0x4E, 0x49, 0x43, 0x30, 0x30, 0x33}; // V2 signature: BTNIC003
 	const uint8_t ext_section_sig[] = {0x51, 0x04, 0xFD, 0x77};                      // Extension section signature
-	uint8_t project_id;
 	uint8_t *p_patch = NULL;
 	uint32_t patch_len;
 	uint8_t patch_version;
@@ -165,11 +133,6 @@ static uint8_t hci_patch_get_patch_version(struct rtb_struct* rtb_cfg)
 		patch_version = PATCH_VERSION_V1;
 	} else if ((!memcmp(p_patch, patch_sig_v2, sizeof(patch_sig_v2))) &&
 				(!memcmp(p_patch + patch_len - sizeof(ext_section_sig), ext_section_sig, sizeof(ext_section_sig)))) {
-		project_id = _get_patch_project_id(p_patch + patch_len - sizeof(ext_section_sig));
-		if (project_id != HCI_PATCH_PROJECT_ID) {
-			RS_ERR("Project ID 0x%02x check fail, No available patch!", project_id);
-			return PATCH_VERSION_INVALID;
-		}
 		patch_version = PATCH_VERSION_V2;
 	} else if ((!memcmp(p_patch, patch_sig_v3, sizeof(patch_sig_v3)))) {
 		patch_version = PATCH_VERSION_V3;
@@ -367,6 +330,8 @@ static int rtb_config(int fd, int proto, int speed, struct termios *ti)
 	h4_vendor_read_rom_ver(fd);
 	if (rtb_cfg.lmp_subver == ROM_LMP_8730) {
 		rtb_cfg.chip_type = CHIP_8730;
+	} else if (rtb_cfg.lmp_subver == ROM_LMP_8735) {
+		rtb_cfg.chip_type = CHIP_8735;
 	} else {
 		RS_ERR("H4: unknown chip");
 		return -1;
@@ -380,10 +345,17 @@ static int rtb_config(int fd, int proto, int speed, struct termios *ti)
 		rtb_cfg.patch_ent->patch_file = "rtl8730_mp_fw";
 	}
 	if (rtb_cfg.patch_ent) {
-		if(bt_ant_switch == 1)
-			rtb_cfg.patch_ent->config_file = "rtl8730_config_s1";
-		else if(bt_ant_switch == 0)
-			rtb_cfg.patch_ent->config_file = "rtl8730_config_s0";
+		if(bt_ant_switch == 1) {
+			if(rtb_cfg.lmp_subver == ROM_LMP_8730)
+				rtb_cfg.patch_ent->config_file = "rtl8730_config_s1";
+			else if(rtb_cfg.lmp_subver == ROM_LMP_8735)
+				rtb_cfg.patch_ent->config_file = "rtl8735_config_s1";
+		} else if(bt_ant_switch == 0) {
+			if(rtb_cfg.lmp_subver == ROM_LMP_8730)
+				rtb_cfg.patch_ent->config_file = "rtl8730_config_s0";
+			else if(rtb_cfg.lmp_subver == ROM_LMP_8735)
+				rtb_cfg.patch_ent->config_file = "rtl8735_config_s0";
+		}
 		RS_INFO("IC: %s", rtb_cfg.patch_ent->ic_name);
 		RS_INFO("Firmware/config: %s, %s",
 				rtb_cfg.patch_ent->patch_file,
